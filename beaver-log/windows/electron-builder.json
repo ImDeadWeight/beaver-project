@@ -9,7 +9,7 @@
     "electron/**/*"
   ],
   "asarUnpack": [
-    "electron/preload.mjs"
+    "electron/preload.cjs"
   ],
   "extraResources": [
     {

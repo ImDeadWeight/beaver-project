@@ -26,6 +26,29 @@ type HardwareSpecs = {
   os: { platform: string; arch: string }
 }
 
+type WebFetchTool = {
+  id: string
+  name: string
+  baseUrl: string
+  description: string
+  builtIn: boolean
+}
+
+type ToolGroup = {
+  id: string
+  name: string
+  description: string
+  toolIds: string[]
+  builtIn: boolean
+}
+
+type ProfileTools = {
+  enabled: boolean
+  activeGroupIds: string[]
+  activeToolIds: string[]
+  maxFetchTokens: number
+}
+
 type LlamaConfig = {
   modelPath: string
   ctxSize: number
@@ -37,6 +60,7 @@ type LlamaConfig = {
   networkMode?: boolean
   nCpuMoe?: number
   additionalArgs?: string
+  tools?: ProfileTools
 }
 
 type BeaverAPI = {
@@ -59,6 +83,14 @@ type BeaverAPI = {
     load: (name: string) => Promise<LlamaConfig | null>
     delete: (name: string) => Promise<boolean>
     generateDefaults: (hardware: HardwareSpecs) => Promise<LlamaConfig[]>
+  }
+  tools: {
+    listAll: () => Promise<{ builtinTools: WebFetchTool[], builtinGroups: ToolGroup[], userTools: WebFetchTool[], userGroups: ToolGroup[] }>
+    addTool: (tool: Omit<WebFetchTool, 'builtIn'>) => Promise<boolean>
+    deleteTool: (id: string) => Promise<boolean>
+    addGroup: (group: Omit<ToolGroup, 'builtIn'>) => Promise<boolean>
+    deleteGroup: (id: string) => Promise<boolean>
+    applyConfig: (config: LlamaConfig) => Promise<boolean>
   }
   settings: {
     getBinaryPath: () => Promise<string | null>
@@ -122,6 +154,16 @@ export default function App() {
   const [logLines, setLogLines] = useState<string[]>([])
   const [confirmStop, setConfirmStop] = useState(false)
   const [binaryPath, setBinaryPath] = useState<string | null>(null)
+  const [allTools, setAllTools] = useState<WebFetchTool[]>([])
+  const [allGroups, setAllGroups] = useState<ToolGroup[]>([])
+  const [showAddTool, setShowAddTool] = useState(false)
+  const [newToolName, setNewToolName] = useState('')
+  const [newToolUrl, setNewToolUrl] = useState('')
+  const [newToolDesc, setNewToolDesc] = useState('')
+  const [showAddGroup, setShowAddGroup] = useState(false)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [newGroupDesc, setNewGroupDesc] = useState('')
+  const [newGroupToolIds, setNewGroupToolIds] = useState<string[]>([])
   const statusPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
   const configRef = useRef(config)
@@ -137,6 +179,7 @@ export default function App() {
     }
 
     loadProfiles()
+    loadToolDefs()
     a.server.getIp().then(setLocalIp)
     a.settings.getResolvedBinary().then(setBinaryPath)
 
@@ -225,6 +268,83 @@ export default function App() {
     await loadProfiles()
     setStatusMsg('Default profiles generated from hardware scan.')
     setTimeout(() => setStatusMsg(''), 3000)
+  }
+
+  // --- Tools ---
+
+  async function loadToolDefs() {
+    try {
+      const data = await api().tools.listAll()
+      setAllTools([
+        ...data.builtinTools.map(t => ({ ...t, builtIn: true })),
+        ...data.userTools.map(t => ({ ...t, builtIn: false })),
+      ])
+      setAllGroups([
+        ...data.builtinGroups.map(g => ({ ...g, builtIn: true })),
+        ...data.userGroups.map(g => ({ ...g, builtIn: false })),
+      ])
+    } catch { /* tools unavailable */ }
+  }
+
+  function setToolsField<K extends keyof ProfileTools>(key: K, value: ProfileTools[K]) {
+    setConfig(prev => ({
+      ...prev,
+      tools: {
+        enabled: false,
+        activeGroupIds: [],
+        activeToolIds: [],
+        maxFetchTokens: 2000,
+        ...(prev.tools || {}),
+        [key]: value,
+      },
+    }))
+  }
+
+  function toggleGroup(groupId: string) {
+    const current = config.tools?.activeGroupIds ?? []
+    const next = current.includes(groupId)
+      ? current.filter(id => id !== groupId)
+      : [...current, groupId]
+    setToolsField('activeGroupIds', next)
+  }
+
+  function toggleTool(toolId: string) {
+    const current = config.tools?.activeToolIds ?? []
+    const next = current.includes(toolId)
+      ? current.filter(id => id !== toolId)
+      : [...current, toolId]
+    setToolsField('activeToolIds', next)
+  }
+
+  async function addCustomTool() {
+    const name = newToolName.trim()
+    const url  = newToolUrl.trim()
+    if (!name || !url) return
+    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+    await api().tools.addTool({ id, name, baseUrl: url, description: newToolDesc.trim() })
+    setNewToolName(''); setNewToolUrl(''); setNewToolDesc(''); setShowAddTool(false)
+    await loadToolDefs()
+  }
+
+  async function deleteCustomTool(id: string) {
+    await api().tools.deleteTool(id)
+    setToolsField('activeToolIds', (config.tools?.activeToolIds ?? []).filter(t => t !== id))
+    await loadToolDefs()
+  }
+
+  async function addCustomGroup() {
+    const name = newGroupName.trim()
+    if (!name || newGroupToolIds.length === 0) return
+    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+    await api().tools.addGroup({ id, name, description: newGroupDesc.trim(), toolIds: newGroupToolIds })
+    setNewGroupName(''); setNewGroupDesc(''); setNewGroupToolIds([]); setShowAddGroup(false)
+    await loadToolDefs()
+  }
+
+  async function deleteCustomGroup(id: string) {
+    await api().tools.deleteGroup(id)
+    setToolsField('activeGroupIds', (config.tools?.activeGroupIds ?? []).filter(g => g !== id))
+    await loadToolDefs()
   }
 
   // --- Hardware scan ---
@@ -567,6 +687,175 @@ export default function App() {
                 />
               </div>
             </div>
+          </section>
+
+          {/* Web Tools */}
+          <section className="bg-zinc-900 rounded-lg p-4 border border-zinc-800">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xs uppercase tracking-widest text-zinc-500">Web Tools</h2>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <span className="text-xs text-zinc-400">{config.tools?.enabled ? 'Enabled' : 'Disabled'}</span>
+                <div
+                  onClick={() => setToolsField('enabled', !(config.tools?.enabled))}
+                  className={`w-10 h-5 rounded-full transition-colors relative cursor-pointer ${config.tools?.enabled ? 'bg-orange-500' : 'bg-zinc-700'}`}>
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${config.tools?.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </div>
+              </label>
+            </div>
+
+            {config.tools?.enabled ? (<>
+              {/* Performance warning */}
+              <div className={`mb-4 px-3 py-2 rounded text-xs border ${
+                config.ctxSize < 4096
+                  ? 'bg-red-900/30 border-red-700 text-red-300'
+                  : config.ctxSize < 8192
+                  ? 'bg-yellow-900/30 border-yellow-700 text-yellow-300'
+                  : 'bg-zinc-800 border-zinc-700 text-zinc-400'
+              }`}>
+                {config.ctxSize < 4096
+                  ? `⚠ Context is very small (${config.ctxSize} tokens). Tool fetches may fill it completely. Increase context size or keep tools off.`
+                  : config.ctxSize < 8192
+                  ? `⚠ Small context (${config.ctxSize} tokens). Fetched content may use most of it. Consider 8192+ for tool use.`
+                  : `ⓘ Tool calls add ~2–5 s latency per lookup. The response appears after all fetches complete.`
+                }
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                {/* Left column: Groups */}
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-zinc-500 mb-2">Source Groups</p>
+
+                  <div className="space-y-2 mb-4">
+                    {allGroups.filter(g => g.builtIn).map(group => {
+                      const active = config.tools?.activeGroupIds?.includes(group.id) ?? false
+                      return (
+                        <label key={group.id} className="flex items-start gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox" checked={active}
+                            onChange={() => toggleGroup(group.id)}
+                            className="mt-0.5 accent-orange-500"
+                          />
+                          <div>
+                            <span className="text-sm text-zinc-200">{group.name}</span>
+                            <span className="text-xs text-zinc-500 ml-2">{group.description}</span>
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
+
+                  {allGroups.filter(g => !g.builtIn).length > 0 && (<>
+                    <p className="text-xs text-zinc-500 mb-2">Custom groups</p>
+                    <div className="space-y-1 mb-3">
+                      {allGroups.filter(g => !g.builtIn).map(group => {
+                        const active = config.tools?.activeGroupIds?.includes(group.id) ?? false
+                        return (
+                          <div key={group.id} className="flex items-center gap-2">
+                            <label className="flex items-center gap-2 cursor-pointer select-none flex-1">
+                              <input type="checkbox" checked={active} onChange={() => toggleGroup(group.id)} className="accent-orange-500" />
+                              <span className="text-sm text-zinc-200">{group.name}</span>
+                            </label>
+                            <button onClick={() => deleteCustomGroup(group.id)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors px-1">✕</button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>)}
+
+                  {!showAddGroup ? (
+                    <button onClick={() => setShowAddGroup(true)}
+                      className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
+                      + Create custom group
+                    </button>
+                  ) : (
+                    <div className="space-y-2 bg-zinc-800/60 p-3 rounded border border-zinc-700">
+                      <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)}
+                        placeholder="Group name" className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-orange-500" />
+                      <input value={newGroupDesc} onChange={e => setNewGroupDesc(e.target.value)}
+                        placeholder="Description (optional)" className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-orange-500" />
+                      <p className="text-xs text-zinc-500">Select sources for this group:</p>
+                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {allTools.map(tool => (
+                          <label key={tool.id} className="flex items-center gap-2 cursor-pointer select-none">
+                            <input type="checkbox" checked={newGroupToolIds.includes(tool.id)}
+                              onChange={() => setNewGroupToolIds(prev => prev.includes(tool.id) ? prev.filter(id => id !== tool.id) : [...prev, tool.id])}
+                              className="accent-orange-500" />
+                            <span className="text-sm text-zinc-300">{tool.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button onClick={addCustomGroup} className="px-3 py-1.5 bg-orange-500 hover:bg-orange-400 rounded text-xs font-medium transition-colors">Save group</button>
+                        <button onClick={() => { setShowAddGroup(false); setNewGroupName(''); setNewGroupToolIds([]) }} className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 rounded text-xs transition-colors">Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right column: Individual sources */}
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-zinc-500 mb-2">Individual Sources</p>
+                  <div className="space-y-1.5 mb-4">
+                    {allTools.map(tool => {
+                      const inActiveGroup = (config.tools?.activeGroupIds ?? []).some(gid => {
+                        const grp = allGroups.find(g => g.id === gid)
+                        return grp?.toolIds.includes(tool.id)
+                      })
+                      const active = (config.tools?.activeToolIds?.includes(tool.id) ?? false) || inActiveGroup
+                      return (
+                        <div key={tool.id} className="flex items-center gap-2">
+                          <label className={`flex items-center gap-2 cursor-pointer select-none flex-1 ${inActiveGroup ? 'opacity-50' : ''}`}>
+                            <input type="checkbox" checked={active} disabled={inActiveGroup}
+                              onChange={() => toggleTool(tool.id)} className="accent-orange-500" />
+                            <div className="min-w-0">
+                              <span className="text-sm text-zinc-200">{tool.name}</span>
+                              {inActiveGroup && <span className="text-xs text-zinc-600 ml-2">(via group)</span>}
+                              {tool.builtIn && !inActiveGroup && <span className="text-xs text-zinc-600 ml-2">{tool.baseUrl}</span>}
+                            </div>
+                          </label>
+                          {!tool.builtIn && (
+                            <button onClick={() => deleteCustomTool(tool.id)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors flex-shrink-0 px-1">✕</button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {!showAddTool ? (
+                    <button onClick={() => setShowAddTool(true)}
+                      className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors mb-4 block">
+                      + Add custom source
+                    </button>
+                  ) : (
+                    <div className="space-y-2 bg-zinc-800/60 p-3 rounded border border-zinc-700 mb-4">
+                      <input value={newToolName} onChange={e => setNewToolName(e.target.value)}
+                        placeholder="Source name" className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-orange-500" />
+                      <input value={newToolUrl} onChange={e => setNewToolUrl(e.target.value)}
+                        placeholder="Base URL (e.g. https://example.com)" className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-orange-500" />
+                      <input value={newToolDesc} onChange={e => setNewToolDesc(e.target.value)}
+                        placeholder="Description (optional)" className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-orange-500" />
+                      <div className="flex gap-2 pt-1">
+                        <button onClick={addCustomTool} className="px-3 py-1.5 bg-orange-500 hover:bg-orange-400 rounded text-xs font-medium transition-colors">Save source</button>
+                        <button onClick={() => { setShowAddTool(false); setNewToolName(''); setNewToolUrl(''); setNewToolDesc('') }} className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 rounded text-xs transition-colors">Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs text-zinc-400 whitespace-nowrap">Max tokens per fetch</label>
+                    <input
+                      type="number" min={500} max={8000} step={500}
+                      value={config.tools?.maxFetchTokens ?? 2000}
+                      onChange={e => setToolsField('maxFetchTokens', Math.max(500, Math.min(8000, parseInt(e.target.value) || 2000)))}
+                      className="w-24 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-orange-500"
+                    />
+                    <span className="text-xs text-zinc-600">of {config.ctxSize} ctx tokens</span>
+                  </div>
+                </div>
+              </div>
+            </>) : (
+              <p className="text-xs text-zinc-600">Enable web tools to allow the model to fetch live content from approved sources during inference. Settings are saved with the active profile.</p>
+            )}
           </section>
 
           {/* Command preview */}

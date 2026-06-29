@@ -26,6 +26,15 @@ contextBridge.exposeInMainWorld('beaverAPI', {
     generateDefaults: (hardware) => ipcRenderer.invoke('profiles:generate-defaults', hardware),
   },
 
+  tools: {
+    listAll: () => ipcRenderer.invoke('tools:list-all'),
+    addTool: (tool) => ipcRenderer.invoke('tools:add-tool', tool),
+    deleteTool: (id) => ipcRenderer.invoke('tools:delete-tool', id),
+    addGroup: (group) => ipcRenderer.invoke('tools:add-group', group),
+    deleteGroup: (id) => ipcRenderer.invoke('tools:delete-group', id),
+    applyConfig: (config) => ipcRenderer.invoke('tools:apply-config', config),
+  },
+
   chat: {
     open: (port, ssl) => ipcRenderer.invoke('chat:open', port, ssl),
   },

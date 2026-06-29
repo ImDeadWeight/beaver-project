@@ -18,6 +18,9 @@ import { execFile, spawn } from 'child_process'
 import { promisify } from 'util'
 import * as path from 'path'
 import * as fs from 'fs'
+import { BUILTIN_TOOLS, BUILTIN_GROUPS } from './tools-definitions.mjs'
+import { getUserTools, getUserGroups, addUserTool, deleteUserTool, addUserGroup, deleteUserGroup } from './tools-storage.mjs'
+import { startGateway, stopGateway, updateGatewayConfig, getGatewayPort } from './tools-gateway.mjs'
 import * as os from 'os'
 import * as zlib from 'zlib'
 import * as http from 'http'
@@ -273,6 +276,46 @@ function resolveBinary() {
 }
 
 // ---------------------------------------------------------------------------
+// Tool gateway config builder
+// ---------------------------------------------------------------------------
+// Resolves a profile's tool settings (group/tool IDs) into a flat list of
+// allowed base URLs for the gateway. Called whenever the server starts or the
+// user applies a profile change while the server is running.
+
+function buildGatewayConfig(llamaConfig) {
+  const toolSettings = llamaConfig?.tools
+  if (!toolSettings?.enabled) return { allowedBaseUrls: [], maxFetchTokens: 2000 }
+
+  const allTools = [
+    ...BUILTIN_TOOLS.map(t => ({ ...t, builtIn: true })),
+    ...getUserTools(),
+  ]
+  const allGroups = [
+    ...BUILTIN_GROUPS.map(g => ({ ...g, builtIn: true })),
+    ...getUserGroups(),
+  ]
+
+  const toolIdSet = new Set(toolSettings.activeToolIds || [])
+
+  // Add all tool IDs from active groups
+  for (const groupId of (toolSettings.activeGroupIds || [])) {
+    const group = allGroups.find(g => g.id === groupId)
+    if (group) group.toolIds.forEach(id => toolIdSet.add(id))
+  }
+
+  const allowedBaseUrls = []
+  for (const id of toolIdSet) {
+    const tool = allTools.find(t => t.id === id)
+    if (tool?.baseUrl) allowedBaseUrls.push(tool.baseUrl)
+  }
+
+  return {
+    allowedBaseUrls,
+    maxFetchTokens: toolSettings.maxFetchTokens ?? 2000,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Profile helpers
 // ---------------------------------------------------------------------------
 
@@ -332,15 +375,20 @@ function startBeaconServer() {
     const networkMode = lastServerConfig?.networkMode ?? false
     const lanIp       = getLocalIp()
 
+    // Advertise the tool gateway port when it's running so clients get tool
+    // support automatically. Gateway is a pure passthrough when no tools are
+    // active, so this is transparent to clients regardless of profile.
+    const advertisePort = getGatewayPort(port) ?? port
+
     const payload = {
       app: 'beaver-dam',
       version: '1.0.0',
       server: {
         running,
-        port,
+        port: advertisePort,
         ssl: false,
-        localUrl:   `http://127.0.0.1:${port}`,
-        networkUrl: networkMode ? `http://${lanIp}:${port}` : null,
+        localUrl:   `http://127.0.0.1:${advertisePort}`,
+        networkUrl: networkMode ? `http://${lanIp}:${advertisePort}` : null,
       },
     }
 
@@ -584,6 +632,7 @@ function killOrphanedServers() {
 
 app.on('before-quit', () => {
   killOrphanedServers()
+  stopGateway()
   if (serverProcess) {
     serverProcess = null
   }
@@ -771,6 +820,31 @@ $r | ConvertTo-Json -Compress
     return [assistant, productivity]
   })
 
+  // --- Tools ---
+
+  ipcMain.handle('tools:list-all', () => {
+    return {
+      builtinTools:  BUILTIN_TOOLS,
+      builtinGroups: BUILTIN_GROUPS,
+      userTools:     getUserTools(),
+      userGroups:    getUserGroups(),
+    }
+  })
+
+  ipcMain.handle('tools:add-tool', (_, tool) => addUserTool(tool))
+  ipcMain.handle('tools:delete-tool', (_, id) => deleteUserTool(id))
+  ipcMain.handle('tools:add-group', (_, group) => addUserGroup(group))
+  ipcMain.handle('tools:delete-group', (_, id) => deleteUserGroup(id))
+
+  // Apply a live tool config change without restarting the server.
+  // Called when the user saves a profile that has tools configured while the
+  // server is already running.
+  ipcMain.handle('tools:apply-config', (_, llamaConfig) => {
+    if (!getGatewayPort(llamaConfig?.port ?? 8080)) return false
+    updateGatewayConfig(buildGatewayConfig(llamaConfig))
+    return true
+  })
+
   // --- Llama command preview ---
 
   ipcMain.handle('llama:generate-command', (_, config) => {
@@ -829,6 +903,16 @@ $r | ConvertTo-Json -Compress
 
       serverProcess = child
       lastServerConfig = config
+
+      // Start the tool gateway alongside llama-server. It's a transparent
+      // passthrough when the profile has no tools enabled.
+      try {
+        await startGateway(config.port, buildGatewayConfig(config))
+      } catch (err) {
+        console.warn('Tool gateway failed to start:', err.message)
+        // Non-fatal — server still works, just without tool interception
+      }
+
       if (openChat) openChatWindow(config.port, config.networkMode)
       return { success: true, pid: child.pid }
     } catch (e) {
@@ -840,6 +924,7 @@ $r | ConvertTo-Json -Compress
 
   ipcMain.handle('server:stop', async () => {
     closeChatWindow()
+    stopGateway()
     if (!serverProcess) return { success: true }
     serverProcess.kill()
     serverProcess = null

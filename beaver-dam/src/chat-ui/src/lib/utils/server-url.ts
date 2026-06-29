@@ -9,8 +9,12 @@ export function isCapacitorAndroid(): boolean {
 
 /** True when running inside the Beaver Log Windows Electron app. */
 export function isElectronLog(): boolean {
-	return typeof window !== 'undefined' &&
-		!!(window as Window & { beaverLogAPI?: unknown }).beaverLogAPI;
+	if (typeof window === 'undefined') return false;
+	// Primary check: contextBridge sets this when the preload loads correctly.
+	if ((window as Window & { beaverLogAPI?: unknown }).beaverLogAPI) return true;
+	// Fallback: Electron always injects itself into the UA string. Use this so
+	// getServerBaseUrl() reads from localStorage even if the preload had issues.
+	return /Electron/.test(navigator.userAgent);
 }
 
 /**

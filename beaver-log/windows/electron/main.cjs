@@ -1,43 +1,20 @@
+'use strict'
+
 // =============================================================================
 // Beaver Log (Windows) — Electron main process
 // =============================================================================
-// This is the Windows desktop companion to Beaver Dam. Its job is simple:
-// serve the same SvelteKit chat-ui that the Android app uses and scan the
-// local network to find a running Beaver Dam instance automatically.
-//
-// I kept this separate from Beaver Dam intentionally — Beaver Dam is the
-// server manager (runs on the PC hosting the GPU), while Beaver Log is just
-// a client (runs anywhere on the network). Separating them means a user could
-// run Beaver Log on a laptop while Beaver Dam runs on a desktop.
-//
-// The scan uses the same beacon protocol as the Android app (port 8765), so
-// both clients work identically without duplicating server-side logic.
-// =============================================================================
 
-// Static import of 'electron' fails in some Electron 33 builds because Node.js
-// statically analyses node_modules/electron/index.js (the npm install shim)
-// during the link phase, before Electron's own built-in API provider is active.
-// Dynamic import runs at execution time, when Electron's module system IS ready.
-import * as http from 'node:http'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const { app, BrowserWindow, ipcMain, session } = await import('electron')
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+const http = require('node:http')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const { app, BrowserWindow, ipcMain, session } = require('electron')
 
 // ---------------------------------------------------------------------------
 // Static file server
 // ---------------------------------------------------------------------------
-// I serve the chat-ui from a local HTTP server on a random port rather than
-// loading the files directly with file:// URLs. Service workers (which power
-// the offline PWA features), IndexedDB, and some fetch APIs all require a
-// proper HTTP origin to work — file:// URLs are treated as opaque origins by
-// browsers and Electron's Chromium behaves the same way. The random port
-// means multiple Beaver Log windows won't collide with each other.
+// Served over HTTP (not file://) so that service workers, IndexedDB, and
+// fetch APIs work — Chromium treats file:// as an opaque origin and blocks them.
 // ---------------------------------------------------------------------------
 
 const MIME_TYPES = {
@@ -59,7 +36,7 @@ let fileServer = null
 function startFileServer() {
   const chatUiDir = app.isPackaged
     ? path.join(process.resourcesPath, 'chat-ui')
-    : path.join(__dirname, '..', '..', '..', '..', 'beaver-dam', 'src', 'chat-ui', 'dist')
+    : path.join(__dirname, '..', '..', '..', 'beaver-dam', 'src', 'chat-ui', 'dist')
 
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
@@ -74,9 +51,8 @@ function startFileServer() {
       }
 
       // API-like paths (no extension, not root) are llama-server calls that
-      // should go to the user's configured remote server. Return JSON 503 so
-      // the chat-ui shows "Server unavailable" cleanly instead of trying to
-      // parse index.html as JSON.
+      // should go to the configured remote server. Return JSON 503 so the
+      // chat-ui shows a clean error instead of trying to parse HTML as JSON.
       if (!ext && urlPath !== '/') {
         res.writeHead(503, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'No server configured. Go to Settings → Server to enter your Beaver Dam address.' }))
@@ -109,10 +85,8 @@ function startFileServer() {
 // ---------------------------------------------------------------------------
 // CSP (Content Security Policy)
 // ---------------------------------------------------------------------------
-// I have to keep connect-src open to arbitrary http/https/ws/wss addresses
-// because the user can point Beaver Log at any IP on their network. Unlike
-// Beaver Dam (where I know the exact server address at build time), here I
-// have no idea at build time what IP the Beaver Dam machine will have.
+// connect-src must allow arbitrary http/https because the user configures
+// the Beaver Dam address at runtime — we can't know the IP at build time.
 // ---------------------------------------------------------------------------
 
 const CSP = [
@@ -134,20 +108,15 @@ app.on('before-quit', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Network discovery IPC — mirrors the Android NetworkDiscovery Capacitor plugin
-// interface so the chat-ui can use the same code path on both platforms.
+// Network discovery IPC
+// ---------------------------------------------------------------------------
+// Mirrors the Android NetworkDiscovery Capacitor plugin interface so the
+// chat-ui can use the same code path on both platforms via beaverLogAPI.network.
+// Port 8765 matches the beacon port in Beaver Dam — both sides must agree.
 // ---------------------------------------------------------------------------
 
-// I use port 8765 to match the beacon port in Beaver Dam. Both sides need to
-// agree on this number — it's not configurable on purpose because the whole
-// point is zero-configuration discovery.
 const BEACON_PORT = 8765
 
-// probeBeacon contacts a single IP and checks whether Beaver Dam is there.
-// I verify the app identity ("beaver-dam") before trusting the response so
-// that other HTTP services on port 8765 don't get mistaken for Beaver Dam.
-// I also require server.running to be true — if Beaver Dam is open but hasn't
-// started a model yet, there's nothing to connect to.
 function probeBeacon(ip, timeout) {
   return new Promise((resolve) => {
     const req = http.get(
@@ -158,9 +127,10 @@ function probeBeacon(ip, timeout) {
         res.on('end', () => {
           try {
             const data = JSON.parse(body)
+            // Verify app identity and require a running model — avoids false
+            // positives from other HTTP services on port 8765.
             if (data.app !== 'beaver-dam' || !data.server?.running) { resolve(null); return }
 
-            // Same-machine discovery → use localUrl; LAN discovery → use networkUrl
             const url = ip === '127.0.0.1' ? data.server.localUrl : data.server.networkUrl
             if (!url) { resolve(null); return }
 
@@ -195,13 +165,10 @@ ipcMain.handle('network:scan', async (_, { subnet, timeout = 400 }) => {
   const found = []
   const probes = []
 
-  // I always probe 127.0.0.1 first to handle the case where Beaver Dam and
-  // Beaver Log are running on the same machine. In that case the LAN scan
-  // would find the local IP too, but this ensures we catch localhost-only
-  // mode where Beaver Dam isn't bound to 0.0.0.0.
+  // Always probe 127.0.0.1 first to catch the case where Beaver Dam and
+  // Beaver Log run on the same machine with Beaver Dam bound to localhost only.
   probes.push(probeBeacon('127.0.0.1', timeout).then(s => s && found.push(s)))
 
-  // Scan LAN for Beaver Dam instances broadcasting on the beacon port
   for (let i = 1; i <= 254; i++) {
     probes.push(probeBeacon(`${subnet}.${i}`, timeout).then(s => s && found.push(s)))
   }
@@ -232,8 +199,8 @@ app.whenReady().then(async () => {
       contextIsolation: true,
       sandbox: false,
       preload: app.isPackaged
-        ? path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'preload.mjs')
-        : path.join(__dirname, 'preload.mjs'),
+        ? path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'preload.cjs')
+        : path.join(__dirname, 'preload.cjs'),
     },
   })
 

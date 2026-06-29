@@ -12,6 +12,7 @@
 - [Mission](#mission)
 - [What Is Beaver?](#what-is-beaver)
 - [How It Works](#how-it-works)
+- [Web Tools](#web-tools)
 - [Using as a Coding Agent](#using-as-a-coding-agent-kilo-code--continue-etc)
 - [Tested Configuration](#tested-configuration)
 - [Requirements](#requirements)
@@ -106,8 +107,9 @@ All three share the same [SvelteKit](https://kit.svelte.dev/) chat frontend, whi
 [ GPU PC ]                          [ Phone / Laptop / VS Code ]
   Beaver Dam                           Beaver Log  /  Kilo Code
   ├─ llama-server (llama.cpp)       ├─ Scans LAN on port 8765
-  ├─ Beacon on :8765                ├─ Finds Beaver Dam automatically
-  └─ Chat UI + OpenAI API :8080     └─ Or connect manually to http://IP:8080
+  ├─ Tool gateway (:port+1)         ├─ Finds Beaver Dam automatically
+  ├─ Beacon on :8765                └─ Or connect manually to http://IP:8080
+  └─ Chat UI + OpenAI API :8080
 ```
 
 **Discovery:** Beaver Dam broadcasts a JSON beacon on port 8765. Beaver Log (both Android and Windows) scans the local subnet on startup and connects automatically if a running server is found. No configuration required.
@@ -119,6 +121,26 @@ All three share the same [SvelteKit](https://kit.svelte.dev/) chat frontend, whi
 **Browser access:** When Beaver Dam is running, the chat UI is also accessible directly in any browser at `http://127.0.0.1:8080` (or `http://<LAN-IP>:8080` in network mode). No app required.
 
 **HTTP only:** The LAN connection uses plain HTTP. HTTPS with self-signed certificates was tried and abandoned — Android WebView rejects them without manual cert trust, which is too much friction for a home tool. Proper transport security is on the roadmap, likely via a lightweight CA or certificate pinning approach, and becomes more important as the project moves toward small business use.
+
+---
+
+## Web Tools
+
+Beaver Dam includes an optional web fetch tool that lets the model look up live content from approved sources during a conversation — Wikipedia, GitHub, AP News, legal references, arXiv, PubMed, and others. This is off by default and saved per profile.
+
+**How it works:** When web tools are enabled, Beaver Dam starts a lightweight gateway proxy on the port adjacent to llama-server (e.g. `:8081` when the server runs on `:8080`). The beacon advertises this gateway port so clients connect through it automatically. When the model decides to look something up, it calls `web_fetch`, the gateway fetches the page, strips it to plain text, injects the result back into context, and the model continues. If no tools are enabled the gateway is a pure transparent proxy with no overhead.
+
+**The whitelist is enforced at the gateway, not the client.** Because the gateway sits on the server machine rather than the client device, no connected user — and no prompt — can make the model fetch from a source that isn't on the approved list. A law firm might approve only the specific legal databases their practice relies on, scoped to their local jurisdiction. Large models can conflate laws from different states when synthesizing across multiple sources; a whitelist restricted to one jurisdiction's databases reduces that risk at the source rather than relying on the model to keep track of it. The model cannot be instructed to go outside that boundary regardless of what a user asks it to do.
+
+The built-in source groups (General Knowledge, Developer, News, Legal US, Research) are proof-of-concept defaults — starting points that demonstrate what a group looks like. In practice, an organization would define their own groups from the sources they actually trust and control. That precision is the point.
+
+**Configuring tools in Beaver Dam:**
+
+The **Web Tools** card appears in the main configuration panel, between the model settings and the command preview. From there you can enable built-in source groups, toggle individual sources, create custom groups, add your own URLs to the whitelist, and set the per-fetch token budget. All settings are saved with the active profile — different profiles can have different tool configurations.
+
+**Performance note:** Each tool call adds 2–5 seconds of latency. The model's response appears after all fetches complete. Context sizes below 8192 tokens are flagged with a warning since fetched content competes with your conversation history. Beaver Dam shows a red warning below 4096 tokens where tool use is likely to break the context entirely.
+
+**Custom sources:** User-defined tools and groups are stored in `tools.json` in the Electron userData directory alongside `profiles.json`. Built-in sources are proof-of-concept defaults and can be toggled off per-profile.
 
 ---
 
@@ -322,8 +344,15 @@ Settings saved per profile:
 - GPU layers
 - Port (default: 8080)
 - Network mode (localhost vs LAN)
+- Web tool configuration (enabled/disabled, active sources and groups, per-fetch token budget)
 
-There is currently no UI to manage multiple profiles — the file can be edited directly if needed.
+Custom user-defined tools and groups are stored separately in:
+
+```
+C:\Users\<you>\AppData\Roaming\beaver\tools.json
+```
+
+Profile management (save, load, delete) is available directly in the Beaver Dam UI.
 
 ---
 
@@ -332,9 +361,10 @@ There is currently no UI to manage multiple profiles — the file can be edited 
 | Port | Purpose |
 |---|---|
 | 8080 | llama-server (default, configurable in Beaver Dam) |
+| 8081 | Tool gateway proxy — advertised to clients when web tools are active (always port+1) |
 | 8765 | Beacon server — Beaver Dam identity broadcast |
 
-Both ports are local only unless network mode is enabled on port 8080. Port 8765 always binds to `0.0.0.0` so LAN clients can discover the server.
+Both 8080 and 8081 are local only unless network mode is enabled. Port 8765 always binds to `0.0.0.0` so LAN clients can discover the server. The gateway port shifts if you change the llama-server port — it is always `llama-server-port + 1`.
 
 ---
 
@@ -364,6 +394,7 @@ This is an honest work-in-progress. The project started as a personal home tool 
 - [x] Server log displayed in Beaver Dam UI (piped mode)
 - [x] OpenAI-compatible API for use with coding agents (Kilo Code, Continue, etc.)
 - [x] Direct browser access to chat UI at `http://127.0.0.1:8080`
+- [x] Web tools — whitelist-based `web_fetch` with built-in source groups (Wikipedia, GitHub, AP News, Legal, Research) and custom sources; saved per profile
 
 ### Phase 2 — Small Office Ready
 Making Beaver usable in a small workplace rather than just on one person's home network.

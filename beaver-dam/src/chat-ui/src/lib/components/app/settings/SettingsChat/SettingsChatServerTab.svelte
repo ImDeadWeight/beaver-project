@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { isCapacitorAndroid } from '$lib/utils/server-url';
+	import { isCapacitorAndroid, isElectronLog } from '$lib/utils/server-url';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { serverStore } from '$lib/stores/server.svelte';
 	import { SETTINGS_KEYS } from '$lib/constants/settings-keys';
-	import { NetworkDiscovery, type DiscoveredServer } from '$lib/plugins/network-discovery';
+	import { NetworkDiscovery, type DiscoveredServer, type NetworkDiscoveryPlugin } from '$lib/plugins/network-discovery';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -19,6 +19,7 @@
 	let scanError = $state('');
 
 	const onAndroid = isCapacitorAndroid();
+	const onElectron = isElectronLog();
 
 	// ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -54,12 +55,28 @@
 
 		try {
 			const res = await fetch(`${url}/props`, { signal: AbortSignal.timeout(4000) });
-			testStatus = res.ok ? 'ok' : 'error';
-			if (!res.ok) testError = `Server responded with ${res.status}`;
+			if (res.ok) {
+				testStatus = 'ok';
+				// Auto-apply: save the URL and connect so the user doesn't need to
+				// click Save separately after a successful test.
+				settingsStore.updateConfig(SETTINGS_KEYS.SERVER_URL, url);
+				void serverStore.fetch();
+			} else {
+				testStatus = 'error';
+				testError = `Server responded with ${res.status}`;
+			}
 		} catch (e) {
 			testStatus = 'error';
 			testError = e instanceof Error ? e.message : 'Connection failed';
 		}
+	}
+
+	function getDiscovery(): NetworkDiscoveryPlugin {
+		if (onAndroid) return NetworkDiscovery;
+		// On Windows Electron, route through the preload IPC bridge instead of
+		// the Capacitor plugin (which only works on Android).
+		return (window as unknown as { beaverLogAPI: { network: NetworkDiscoveryPlugin } })
+			.beaverLogAPI.network;
 	}
 
 	async function scanNetwork() {
@@ -68,11 +85,12 @@
 		scanError = '';
 
 		try {
-			const info = await NetworkDiscovery.getLocalNetworkInfo();
-			const result = await NetworkDiscovery.scanForServers({ subnet: info.subnet, timeout: 400 });
+			const discovery = getDiscovery();
+			const info = await discovery.getLocalNetworkInfo();
+			const result = await discovery.scanForServers({ subnet: info.subnet, timeout: 400 });
 			discovered = result.servers;
 			if (discovered.length === 0) {
-				scanError = 'No llama servers found on this network.';
+				scanError = 'No Beaver Dam servers found. Make sure a model is running on Beaver Dam.';
 			}
 		} catch (e) {
 			scanError = e instanceof Error ? e.message : 'Scan failed';
@@ -126,8 +144,8 @@
 		</div>
 	</div>
 
-	<!-- Network scan (Android only) -->
-	{#if onAndroid}
+	<!-- Network scan (Android and Windows Electron) -->
+	{#if onAndroid || onElectron}
 		<div class="space-y-4 border-t border-border/40 pt-6">
 			<div class="flex items-center justify-between">
 				<div>

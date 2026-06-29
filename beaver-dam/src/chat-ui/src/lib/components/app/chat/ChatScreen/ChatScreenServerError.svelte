@@ -9,7 +9,7 @@
 
 {#if hasError}
 	<div
-		class="pointer-events-auto mx-auto mb-4 max-w-[48rem] px-1"
+		class="pointer-events-auto mx-auto mb-4 max-w-3xl px-1"
 		use:fadeInView={{ y: 10, duration: 250 }}
 	>
 		<Alert.Root variant="destructive">
