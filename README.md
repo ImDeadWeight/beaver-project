@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="beaver-dam/public/beaver.svg" alt="Beaver logo" width="120" />
+</p>
+
 # Beaver
 
 **A local LLM ecosystem for home/office use.** Run a model on your PC to use it as a coding agent or chat with it from any device on your home network — phone, laptop, or another desktop — with no cloud, no subscriptions, and no data leaving your house.
@@ -342,6 +346,7 @@ Both ports are local only unless network mode is enabled on port 8080. Port 8765
 - **No authentication** — the llama-server API has no auth. Anyone on your home network can use it. Do not expose port 8080 to the public internet.
 - **Single profile active at a time** — Beaver Dam manages one running model at a time.
 - **Windows only for server** — Beaver Dam is Windows-only. The client apps (Beaver Log) can run anywhere, but the server manager requires Windows because it shells out to a Windows llama.cpp binary.
+- **Tokens/min display is unreliable** — the tok/min counter shown in the Beaver Dam header is a known bug. The number it displays is not accurate. This is a known issue and will be fixed in a future update.
 
 ---
 
