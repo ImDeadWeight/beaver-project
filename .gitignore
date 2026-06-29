@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dev-dist/
+release/
+build/
+
+# llama.cpp / TurboQuant — compiled binaries and full source tree.
+# The installer pulls from llama-cpp-turboquant/build/bin/Release/ at build time.
+# See README "Building from Source" for how to set this up.
+beaver-dam/llama-cpp-turboquant/
+beaver-dam/llama-server.exe
+
+# Android build artifacts
+beaver-dam/src/chat-ui/android/.gradle/
+beaver-dam/src/chat-ui/android/app/build/
+beaver-dam/src/chat-ui/android/build/
+beaver-dam/src/chat-ui/android/local.properties
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# IDE
+.idea/
+.vscode/
+
+# Claude Code internal files
+.claude/
+
+# Compiled APK outputs
+beaver-log/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
