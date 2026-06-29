@@ -1,6 +1,6 @@
 # Beaver
 
-**A local LLM ecosystem for home use.** Run a model on your gaming PC and chat with it from any device on your home network — phone, laptop, or another desktop — with no cloud, no subscriptions, and no data leaving your house.
+**A local LLM ecosystem for home/office use.** Run a model on your PC to use it as a coding agent or chat with it from any device on your home network — phone, laptop, or another desktop — with no cloud, no subscriptions, and no data leaving your house.
 
 ---
 
@@ -39,7 +39,7 @@ Beaver Dam started as a personal frustration fix. Running llama.cpp meant rememb
 
 The primary use case was a **local coding agent**: point Kilo Code (or any OpenAI-compatible coding extension) at a locally running model and have a capable AI assistant that works without a subscription and never sends code off-device. Everything else — the Android app, the QR code, the Windows client — grew from wanting that same server accessible on my phone from the couch.
 
-The privacy angle is not an afterthought. My background is in social work, where you routinely handle information that genuinely should not leave the room. The idea of pasting case notes or client details into a cloud AI product is uncomfortable in a way that's hard to shake even in personal projects. Running a model locally means the data stays on the machine — no API calls phoning home, no training pipeline, no terms of service to read carefully.
+The privacy angle is not an afterthought. My background is in social work, where you routinely handle information that genuinely should not leave the room. The idea of pasting case notes or client details into a cloud AI product is uncomfortable but workloads in the field are often challenging making tools like llm workflows for documentation helpful. Running a model locally means the data stays on the machine — no API calls phoning home, no training pipeline, no terms of service to read carefully or settings to change.
 
 The name is a small nod to all of this: a beaver, like a llama, is an animal (llama.cpp deserves the credit for making animal-named AI tools a thing). And a beaver builds a dam — which felt like a fitting metaphor for keeping your AI use contained.
 
