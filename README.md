@@ -218,7 +218,10 @@ Download the `.gguf` file that matches your VRAM. The `Q3_K_XL` variant tested h
 
 ### Beaver Log (Windows)
 1. Download `Beaver Log Setup 1.0.0.exe` from [Releases](../../releases)
-2. Install and open — it scans your network automatically
+2. Install and open — it scans your local network automatically and connects if Beaver Dam is running
+3. If auto-scan doesn't find the server, open **Settings** in the app and enter the server address manually (e.g. `http://192.168.0.213:8080`)
+
+> **Note:** The initial release of Beaver Log Windows had a configuration error in the Electron main process that prevented the app from launching on most systems. This was caught during testing on a second machine and fixed before this release. Apologies — it should have been caught earlier. If you downloaded a copy that wouldn't open, please grab the latest installer from Releases.
 
 ---
 
@@ -272,7 +275,7 @@ The Windows client has no dev server — it just loads the built chat-ui. Build 
 cd beaver-dam/src/chat-ui
 npm run build
 
-cd ../../../windows
+cd ../../../beaver-log/windows
 npm run dev
 ```
 
@@ -314,11 +317,13 @@ Output: `beaver-dam/release/1.0.0/Beaver Dam Setup 1.0.0.exe`
 ### Beaver Log Windows
 
 ```bash
-cd windows
+cd beaver-log/windows
 npm run build
 ```
 
-Output: `windows/release/1.0.0/Beaver Log Setup 1.0.0.exe`
+Output: `beaver-log/windows/release/1.0.0/Beaver Log Setup 1.0.0.exe`
+
+> **Note for contributors:** The Beaver Log Windows Electron main process uses CommonJS (`require`) rather than ESM (`import`). This is intentional — Electron's module interception only works with CJS. The `.cjs` extension on `main.cjs` and `preload.cjs` is load-bearing; do not convert these to `.mjs`.
 
 The Windows build script builds the chat-ui first, then packages the Electron app. Both installers are NSIS-based and self-contained.
 
