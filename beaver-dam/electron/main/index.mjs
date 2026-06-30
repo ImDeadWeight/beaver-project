@@ -630,6 +630,37 @@ function killOrphanedServers() {
   } catch { /* no orphans, fine */ }
 }
 
+// Ensure Windows Firewall has an inbound rule for the gateway port so LAN
+// clients can reach it. Checks first (no elevation) and only calls elevate.exe
+// if the rule is missing — so UAC only fires once per port, ever.
+function ensureFirewallRule(gatewayPort) {
+  if (process.platform !== 'win32') return
+  const ruleName = `BeaverDam Gateway ${gatewayPort}`
+
+  execFile('netsh', ['advfirewall', 'firewall', 'show', 'rule', `name=${ruleName}`, 'dir=in'],
+    (_err, stdout) => {
+      if (stdout && stdout.includes(ruleName)) return // Rule already present
+
+      const elevatePath = app.isPackaged
+        ? path.join(process.resourcesPath, 'elevate.exe')
+        : null
+      if (!elevatePath || !fs.existsSync(elevatePath)) {
+        console.warn(`Gateway firewall: elevate.exe not found, skipping rule for port ${gatewayPort}`)
+        return
+      }
+
+      execFile(elevatePath, [
+        'netsh', 'advfirewall', 'firewall', 'add', 'rule',
+        `name=${ruleName}`,
+        'dir=in', 'action=allow', 'protocol=TCP',
+        `localport=${gatewayPort}`,
+      ], err => {
+        if (err) console.warn(`Could not add firewall rule for gateway port ${gatewayPort}:`, err.message)
+      })
+    }
+  )
+}
+
 app.on('before-quit', () => {
   killOrphanedServers()
   stopGateway()
@@ -908,6 +939,8 @@ $r | ConvertTo-Json -Compress
       // passthrough when the profile has no tools enabled.
       try {
         await startGateway(config.port, buildGatewayConfig(config))
+        const gwPort = getGatewayPort(config.port)
+        if (gwPort) ensureFirewallRule(gwPort)
       } catch (err) {
         console.warn('Tool gateway failed to start:', err.message)
         // Non-fatal — server still works, just without tool interception
