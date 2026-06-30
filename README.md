@@ -4,6 +4,8 @@
 
 # Beaver
 
+**Not affiliated with Microsoft's obeaver, which I found out about after publishing this project**
+
 **A local LLM ecosystem for home/office use.** Run a model on your PC to use it as a coding agent or chat with it from any device on your home network — phone, laptop, or another desktop — with no cloud, no subscriptions, and no data leaving your house.
 
 ---
