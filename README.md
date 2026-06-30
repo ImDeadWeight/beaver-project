@@ -87,7 +87,7 @@ The project isn't there yet. But that's the direction.
 
 ## What Is Beaver?
 
-Beaver is a small ecosystem of apps built around [llama.cpp](https://github.com/ggerganov/llama.cpp) and [TurboQuant](https://github.com/TheTom/llama-cpp-turboquant). The core idea: your home PC probably has a GPU capable of running a decent LLM locally. Beaver makes it easy to start a model on that PC and reach it from any device on your home network.
+Beaver is a small ecosystem of apps built around [TurboQuant+](https://github.com/TheTom/llama-cpp-turboquant), a production-grade fork of [llama.cpp](https://github.com/ggerganov/llama.cpp) that adds advanced weight and KV-cache quantization. The core idea: your home PC probably has a GPU capable of running a decent LLM locally. Beaver makes it easy to start a model on that PC and reach it from any device on your home network.
 
 There are three components:
 
@@ -106,7 +106,7 @@ All three share the same [SvelteKit](https://kit.svelte.dev/) chat frontend, whi
 ```
 [ GPU PC ]                          [ Phone / Laptop / VS Code ]
   Beaver Dam                           Beaver Log  /  Kilo Code
-  ├─ llama-server (llama.cpp)       ├─ Scans LAN on port 8765
+  ├─ llama-server (TurboQuant+)     ├─ Scans LAN on port 8765
   ├─ Tool gateway (:port+1)         ├─ Finds Beaver Dam automatically
   ├─ Beacon on :8765                └─ Or connect manually to http://IP:8080
   └─ Chat UI + OpenAI API :8080
@@ -171,7 +171,9 @@ This is the hardware and model used during development. Results will vary by GPU
 | **Model** | [Qwen3.6-35B-A3B-UD-Q3_K_XL](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF) |
 | **Speed** | ~25–30 tokens/sec on light coding tasks and summarization |
 
-The Qwen 3.6 model is a 35B Mixture-of-Experts architecture with only ~3B parameters active at a time, which is why it fits and runs well on a 12 GB card. The TurboQuant Q3_K_XL quantization keeps quality high while staying within VRAM budget.
+**The model:** Qwen3.6-35B-A3B is an Alibaba model with a hybrid Gated DeltaNet and Gated Attention architecture, 256 experts with 8 routed and 1 shared active at a time — totalling ~3B active parameters out of 35B. That's why it fits and runs at useful speed on a 12 GB card that would be completely unusable with a dense 35B model.
+
+**The quantization:** The `UD` prefix stands for Unsloth Dynamic — [Unsloth AI](https://huggingface.co/unsloth) applies different quantization levels to different layers intelligently rather than a flat bit-depth across the whole model. This gives meaningfully better output quality at the same file size compared to a standard K-quant. Credit to Unsloth for the conversion and for making this model accessible in GGUF format.
 
 ### Finding GGUF Models
 
@@ -179,7 +181,7 @@ The easiest source is [Hugging Face](https://huggingface.co). For the model abov
 
 > **[unsloth/Qwen3.6-35B-A3B-GGUF](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF)**
 
-Download the `.gguf` file that matches your VRAM. The `Q3_K_XL` variant tested here weighs around 16 GB on disk but loads comfortably into 12 GB of VRAM with GPU layers set appropriately.
+Unsloth provides multiple quantization variants. The `UD-Q3_K_XL` tested here fits comfortably in 12 GB of VRAM. Higher quantizations (Q4 and above) are available if you have more VRAM or are willing to offload some layers to system RAM.
 
 [Unsloth](https://huggingface.co/unsloth) and [bartowski](https://huggingface.co/bartowski) are both reliable sources for well-quantized GGUF files across many model families.
 
@@ -297,9 +299,9 @@ Then open `beaver-dam/src/chat-ui/android` in Android Studio and run on a device
 
 > **Just want to use it?** Download the installer from [Releases](../../releases) — the binaries are already bundled and no extra steps are needed.
 
-For contributors building the installer from scratch: Beaver Dam bundles `llama-server.exe` and its supporting DLLs (compiled from [TurboQuant](https://github.com/TheTom/llama-cpp-turboquant)) at build time. These are not committed to this repository. You need to build TurboQuant first and place the output at `beaver-dam/llama-cpp-turboquant/build/bin/Release/`.
+For contributors building the installer from scratch: Beaver Dam bundles `llama-server.exe` and its supporting DLLs (compiled from [TurboQuant+](https://github.com/TheTom/llama-cpp-turboquant)) at build time. These are not committed to this repository. You need to build TurboQuant+ first and place the output at `beaver-dam/llama-cpp-turboquant/build/bin/Release/`.
 
-Follow [TurboQuant's build instructions](https://github.com/TheTom/llama-cpp-turboquant) — you will need the NVIDIA CUDA Toolkit and Visual Studio C++ build tools. Once built, `npm run build` picks up the binaries automatically.
+Follow [TurboQuant+'s build instructions](https://github.com/TheTom/llama-cpp-turboquant) — you will need the NVIDIA CUDA Toolkit and Visual Studio C++ build tools. Once built, `npm run build` picks up the binaries automatically.
 
 ---
 
@@ -429,9 +431,10 @@ The reliability bar for a small business is materially higher than for a persona
 
 ## Acknowledgements
 
-- [llama.cpp](https://github.com/ggerganov/llama.cpp) — the inference engine that makes all of this possible
-- [TurboQuant](https://github.com/TheTom/llama-cpp-turboquant) — the llama.cpp build and quantization tooling used here; the included `llama-server.exe` comes from this project
-- [Unsloth](https://huggingface.co/unsloth) — pre-quantized GGUF models including the Qwen 3.6 model used during development
+- [TurboQuant+](https://github.com/TheTom/llama-cpp-turboquant) — the inference engine at the core of Beaver Dam. TurboQuant+ is a production-grade fork of llama.cpp by TheTom, adding advanced weight and KV-cache quantization (TQ3_1S, TQ4_1S, turbo KV formats) while remaining fully compatible with all standard llama.cpp models and backends. The `llama-server.exe` bundled in Beaver Dam is compiled from this project.
+- [llama.cpp](https://github.com/ggerganov/llama.cpp) — the upstream project that TurboQuant+ is built on, and the source of the OpenAI-compatible API that makes Beaver work with coding agents and other tools
+- [Alibaba / Qwen Team](https://huggingface.co/Qwen) — creators of the Qwen3.6-35B-A3B model used during development and testing
+- [Unsloth AI](https://huggingface.co/unsloth) — converted the Qwen3.6-35B-A3B model to GGUF format with Unsloth Dynamic (UD) quantization, making it accessible and efficient for local inference
 - [llama.cpp web UI](https://github.com/ggerganov/llama.cpp/tree/master/examples/server) — the upstream chat UI that the Beaver chat frontend is forked from
 
 ---
