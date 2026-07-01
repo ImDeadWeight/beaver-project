@@ -28,7 +28,7 @@
 ---
 
 > **AI Assistance Disclosure**
-> This project was built with significant help from [Claude Code](https://claude.ai/code) (Anthropic). The architecture, design decisions, and goals are the author's own. The implementation was a collaborative process between the author and an AI coding assistant. This is disclosed upfront because it is honest, not because it is something to hide.
+> This project was developed using Claude Code as an AI pair programmer. I designed the product, architecture, user experience, and technical direction, while using Claude to accelerate implementation, debugging, and code generation. All design decisions and final technical choices were made by me.
 
 ---
 
